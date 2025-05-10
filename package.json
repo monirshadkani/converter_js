@@ -1,0 +1,21 @@
+{
+  "name": "converter_js",
+  "version": "1.0.0",
+  "main": "index.js",
+"scripts": {
+  "start": "lite-server --baseDir=src"
+},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "description": "",
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.1.4",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^4.1.4"
+  },
+  "devDependencies": {
+    "lite-server": "^2.6.1"
+  }
+}
