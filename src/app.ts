@@ -50,19 +50,26 @@ class ConverterApp {
       type: "currency",
       label: "Currency",
       units: [
-        { value: "EUR", label: "Euro" },
-        { value: "USD", label: "US Dollar" },
-        { value: "GBP", label: "British Pound" },
-        { value: "JPY", label: "Japanese Yen" },
+        { value: "eur", label: "Euro" },
+        { value: "usd", label: "US Dollar" },
+        { value: "gbp", label: "British Pound" },
+        { value: "jpy", label: "Japanese Yen" },
+        { value: "cad", label: "Canadian Dollar" },
+        { value: "aud", label: "Australian Dollar" },
+        { value: "chf", label: "Swiss Franc" },
+        { value: "cny", label: "Chinese Yuan" },
       ],
     },
     {
       type: "crypto",
       label: "Cryptocurrency",
       units: [
-        { value: "BTC", label: "Bitcoin" },
-        { value: "ETH", label: "Ethereum" },
-        { value: "SOL", label: "Solana" },
+        { value: "btc", label: "Bitcoin" },
+        { value: "eth", label: "Ethereum" },
+        { value: "usdt", label: "Tether" },
+        { value: "bnb", label: "Binance Coin" },
+        { value: "sol", label: "Solana" },
+        { value: "xrp", label: "Ripple" },
       ],
     },
   ];
@@ -70,6 +77,8 @@ class ConverterApp {
   private currentCategory: ConversionType = "length";
   private favorites: Favorite[] = [];
   private history: Conversion[] = [];
+  private debounceTimer: number | null = null;
+  private readonly DEBOUNCE_DELAY = 1000;
 
   constructor() {
     this.loadFromLocalStorage();
@@ -104,7 +113,6 @@ class ConverterApp {
           <h1 class="text-3xl font-bold text-center mb-8">Unit Converter</h1>
           
           <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <!-- Converter Section -->
             <div class="converter-card">
               <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
@@ -137,14 +145,12 @@ class ConverterApp {
               </div>
             </div>
 
-            <!-- Favorites Section -->
             <div class="converter-card">
               <h2 class="text-xl font-semibold mb-4">Favorites</h2>
               <div id="favoritesList" class="space-y-2"></div>
             </div>
           </div>
 
-          <!-- History Section -->
           <div class="converter-card mt-8">
             <h2 class="text-xl font-semibold mb-4">History</h2>
             <div id="historyList" class="space-y-2"></div>
@@ -184,7 +190,6 @@ class ConverterApp {
       this.addToFavorites();
     });
 
-    // Add event delegation for remove favorite buttons
     favoritesList?.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
       if (target.classList.contains("remove-favorite")) {
@@ -241,20 +246,27 @@ class ConverterApp {
 
     toValue.value = result.toFixed(4);
 
-    const conversion: Conversion = {
-      id: Date.now().toString(),
-      type: this.currentCategory,
-      from: fromUnit,
-      to: toUnit,
-      value: fromValue,
-      result: result,
-      timestamp: Date.now(),
-    };
+    if (this.debounceTimer !== null) {
+      window.clearTimeout(this.debounceTimer);
+    }
 
-    this.history.unshift(conversion);
-    if (this.history.length > 10) this.history.pop();
-    this.saveToLocalStorage();
-    this.updateHistoryList();
+    this.debounceTimer = window.setTimeout(() => {
+      const conversion: Conversion = {
+        id: Date.now().toString(),
+        type: this.currentCategory,
+        from: fromUnit,
+        to: toUnit,
+        value: fromValue,
+        result: result,
+        timestamp: Date.now(),
+      };
+
+      this.history.unshift(conversion);
+      if (this.history.length > 10) this.history.pop();
+      this.saveToLocalStorage();
+      this.updateHistoryList();
+      this.debounceTimer = null;
+    }, this.DEBOUNCE_DELAY);
   }
 
   private async convertCurrency(
@@ -263,13 +275,52 @@ class ConverterApp {
     value: number
   ): Promise<number> {
     try {
-      const response = await axios.get(
-        `https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/${from.toLowerCase()}/${to.toLowerCase()}.json`
-      );
-      const data = response.data as { [key: string]: number };
-      return value * data[to.toLowerCase()];
-    } catch (error) {
-      console.error("Error converting currency:", error);
+      console.log(`Converting ${value} ${from} to ${to}`);
+
+      const primaryUrl = `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${from.toLowerCase()}.json`;
+      const fallbackUrl = `https://latest.currency-api.pages.dev/v1/currencies/${from.toLowerCase()}.json`;
+
+      let response;
+      try {
+        console.log("Trying primary URL:", primaryUrl);
+        response = await axios.get<{
+          [key: string]: { [key: string]: number };
+        }>(primaryUrl);
+      } catch (primaryError) {
+        console.log("Primary URL failed, trying fallback URL:", fallbackUrl);
+        response = await axios.get<{
+          [key: string]: { [key: string]: number };
+        }>(fallbackUrl);
+      }
+
+      console.log("API Response:", response.data);
+
+      const rates = response.data[from.toLowerCase()];
+      if (!rates) {
+        throw new Error(`No rates found for ${from}`);
+      }
+
+      const rate = rates[to.toLowerCase()];
+      console.log("Conversion rate:", rate);
+
+      if (!rate) {
+        console.error("Rate not found in response:", response.data);
+        throw new Error(`Conversion rate not found for ${from} to ${to}`);
+      }
+
+      const result = value * rate;
+      console.log("Final result:", result);
+      return result;
+    } catch (error: any) {
+      if (error.response) {
+        console.error("API Error:", {
+          status: error.response.status,
+          data: error.response.data,
+          message: error.message,
+        });
+      } else {
+        console.error("Error converting currency:", error);
+      }
       return 0;
     }
   }
@@ -347,10 +398,12 @@ class ConverterApp {
     favoritesList.innerHTML = this.favorites
       .map(
         (fav) => `
-      <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
-        <span>${this.getUnitLabel(fav.from)} → ${this.getUnitLabel(
-          fav.to
-        )}</span>
+      <div class="flex justify-between items-center p-2 bg-gray-50 rounded hover:bg-gray-100 cursor-pointer favorite-item" data-favorite-id="${
+        fav.id
+      }">
+        <span class="favorite-conversion">${this.getUnitLabel(
+          fav.from
+        )} → ${this.getUnitLabel(fav.to)}</span>
         <button data-id="${
           fav.id
         }" class="remove-favorite text-gray-600 hover:text-gray-800">
@@ -360,6 +413,38 @@ class ConverterApp {
     `
       )
       .join("");
+
+    favoritesList.querySelectorAll(".favorite-item").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement;
+        if (target.classList.contains("remove-favorite")) return;
+
+        const favoriteId = element.getAttribute("data-favorite-id");
+        const favorite = this.favorites.find((fav) => fav.id === favoriteId);
+        if (favorite) {
+          const categorySelect = document.getElementById(
+            "categorySelect"
+          ) as HTMLSelectElement;
+          categorySelect.value = favorite.type;
+          this.currentCategory = favorite.type;
+          this.updateUnitSelects();
+
+          const fromUnit = document.getElementById(
+            "fromUnit"
+          ) as HTMLSelectElement;
+          const toUnit = document.getElementById("toUnit") as HTMLSelectElement;
+          fromUnit.value = favorite.from;
+          toUnit.value = favorite.to;
+
+          const fromValue = document.getElementById(
+            "fromValue"
+          ) as HTMLInputElement;
+          if (fromValue.value) {
+            this.performConversion();
+          }
+        }
+      });
+    });
   }
 
   private updateHistoryList(): void {
